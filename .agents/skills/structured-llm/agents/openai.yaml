@@ -1,0 +1,4 @@
+interface:
+  display_name: "Structured LLM"
+  short_description: "使用 Pydantic 接入结构化 LLM 输出解析"
+  default_prompt: "Use $structured-llm to add structured LLM extraction with Pydantic schemas to this project."
