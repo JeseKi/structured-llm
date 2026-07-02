@@ -2,7 +2,7 @@
 
 一个轻量的 Python 结构化输出运行时。
 
-它直接使用 Pydantic 类型作为 schema，不需要 `.baml` 文件、CLI、代码生成，也不需要额外的运行时编译器。默认行为是先尝试 OpenAI 原生 JSON Schema structured outputs；如果 OpenAI-compatible 服务不支持该请求格式，则降级为「schema prompt + 本地 JSON 提取/轻量修复 + Pydantic 校验」。
+它直接使用 Pydantic 类型作为 schema，不需要 `.baml` 文件、CLI、代码生成，也不需要额外的运行时编译器。默认行为是 BAML 风格的「output format prompt + 本地 JSON 提取/轻量修复 + Pydantic 校验」，因此不依赖特定供应商是否支持 `response_format`。
 
 ## 安装依赖
 
@@ -27,16 +27,16 @@ uv add <package> --group dev --no-config --default-index https://pypi.org/simple
 ## 使用示例
 
 ```python
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from structured_llm import StructuredClient
 
 
 class Receipt(BaseModel):
-    merchant: str
-    total: float
+    merchant: str = Field(description="商户或店铺名称")
+    total: float = Field(description="收据最终支付总金额")
 
 
-client = StructuredClient(model="gpt-4o-mini")
+client = StructuredClient(model="gpt-4o-mini", debug=True)
 receipt = client.run("Extract the receipt: Coffee $4.50", Receipt)
 
 print(receipt.merchant)
@@ -44,6 +44,8 @@ print(receipt.total)
 ```
 
 默认 OpenAI-compatible provider 会从 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL` 读取配置；如果代码里显式传入 `api_key` 或 `base_url`，会优先使用显式参数。`examples/receipt_extraction.py` 会通过 `python-dotenv` 自动加载本地 `.env`。
+
+`Field(description=...)` 会渲染到默认 output format prompt。`debug=True` 会把传给 OpenAI-compatible SDK 的 request payload 和模型解析前的原始输出打印到 stderr。默认不会发送 `response_format`；只有显式设置 `mode="native"` 或 `mode="auto"` 时才会尝试 provider-native structured output。
 
 只解析已有的 LLM 文本输出：
 

@@ -86,7 +86,13 @@ def _render_type(schema: dict[str, Any], defs: dict[str, Any], seen: set[str]) -
             return "object"
         lines = ["{"]
         for key, value in properties.items():
-            suffix = "" if key in required else " optional"
+            metadata = []
+            if key not in required:
+                metadata.append("optional")
+            description = _field_description(value)
+            if description:
+                metadata.append(description)
+            suffix = f" ({'; '.join(metadata)})" if metadata else ""
             rendered = _render_type(value, defs, seen)
             lines.append(f"  {key}: {rendered}{suffix},")
         lines.append("}")
@@ -108,6 +114,13 @@ def _render_type(schema: dict[str, Any], defs: dict[str, Any], seen: set[str]) -
         return "null"
 
     return "any"
+
+
+def _field_description(schema: dict[str, Any]) -> str | None:
+    description = schema.get("description")
+    if not isinstance(description, str):
+        return None
+    return " ".join(description.split())
 
 
 def _to_strict_json_schema(schema: Any) -> Any:

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import inspect
+import json
 import os
+import sys
 from typing import Any, Literal, TypeVar, overload
 
 from .errors import ProviderError, StructuredLLMError, StructuredValidationError
@@ -21,9 +23,10 @@ class StructuredClient:
         model: str,
         api_key: str | None = None,
         base_url: str | None = None,
-        mode: Mode = "auto",
+        mode: Mode = "prompt",
         endpoint: Endpoint = "chat",
         max_retries: int = 1,
+        debug: bool = False,
         openai_client: Any | None = None,
         async_openai_client: Any | None = None,
     ) -> None:
@@ -40,6 +43,7 @@ class StructuredClient:
         self.mode = mode
         self.endpoint = endpoint
         self.max_retries = max_retries
+        self.debug = debug
         self._client = openai_client
         self._async_client = async_openai_client
 
@@ -200,7 +204,9 @@ class StructuredClient:
         client = self._sync_client()
         try:
             response = self._invoke_sync(client, prompt, spec, system=system, native=True, **model_options)
-            return _extract_response_text(response)
+            raw_text = _extract_response_text(response)
+            self._debug_raw_output(raw_text)
+            return raw_text
         except StructuredLLMError:
             raise
         except Exception as exc:
@@ -211,7 +217,9 @@ class StructuredClient:
         prompt = _prompt_with_schema(prompt, spec)
         try:
             response = self._invoke_sync(client, prompt, spec, system=system, native=False, **model_options)
-            return _extract_response_text(response)
+            raw_text = _extract_response_text(response)
+            self._debug_raw_output(raw_text)
+            return raw_text
         except StructuredLLMError:
             raise
         except Exception as exc:
@@ -221,7 +229,9 @@ class StructuredClient:
         client = self._async_openai_client()
         try:
             response = await self._invoke_async(client, prompt, spec, system=system, native=True, **model_options)
-            return _extract_response_text(response)
+            raw_text = _extract_response_text(response)
+            self._debug_raw_output(raw_text)
+            return raw_text
         except StructuredLLMError:
             raise
         except Exception as exc:
@@ -232,7 +242,9 @@ class StructuredClient:
         prompt = _prompt_with_schema(prompt, spec)
         try:
             response = await self._invoke_async(client, prompt, spec, system=system, native=False, **model_options)
-            return _extract_response_text(response)
+            raw_text = _extract_response_text(response)
+            self._debug_raw_output(raw_text)
+            return raw_text
         except StructuredLLMError:
             raise
         except Exception as exc:
@@ -250,8 +262,10 @@ class StructuredClient:
     ) -> Any:
         if self.endpoint == "responses":
             kwargs = self._responses_kwargs(prompt, spec, system=system, native=native, **model_options)
+            self._debug_request("responses.create", kwargs)
             return client.responses.create(**kwargs)
         kwargs = self._chat_kwargs(prompt, spec, system=system, native=native, **model_options)
+        self._debug_request("chat.completions.create", kwargs)
         return client.chat.completions.create(**kwargs)
 
     async def _invoke_async(
@@ -266,8 +280,10 @@ class StructuredClient:
     ) -> Any:
         if self.endpoint == "responses":
             kwargs = self._responses_kwargs(prompt, spec, system=system, native=native, **model_options)
+            self._debug_request("responses.create", kwargs)
             return await _maybe_await(client.responses.create(**kwargs))
         kwargs = self._chat_kwargs(prompt, spec, system=system, native=native, **model_options)
+        self._debug_request("chat.completions.create", kwargs)
         return await _maybe_await(client.chat.completions.create(**kwargs))
 
     def _chat_kwargs(
@@ -321,6 +337,18 @@ class StructuredClient:
             self._async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
         return self._async_client
 
+    def _debug_request(self, endpoint: str, kwargs: dict[str, Any]) -> None:
+        if not self.debug:
+            return
+        print(f"[structured-llm debug] request {endpoint}", file=sys.stderr)
+        print(json.dumps(kwargs, ensure_ascii=False, indent=2, default=repr), file=sys.stderr)
+
+    def _debug_raw_output(self, raw_text: str) -> None:
+        if not self.debug:
+            return
+        print("[structured-llm debug] raw output", file=sys.stderr)
+        print(raw_text, file=sys.stderr)
+
 
 def _chat_response_format(spec: SchemaSpec) -> dict[str, Any]:
     return {
@@ -345,8 +373,9 @@ def _responses_text_format(spec: SchemaSpec) -> dict[str, Any]:
 def _prompt_with_schema(prompt: str, spec: SchemaSpec) -> str:
     return (
         f"{prompt.rstrip()}\n\n"
-        "Answer only with JSON matching this schema:\n"
-        f"{spec.prompt_schema}"
+        "Return a JSON value that matches this output format:\n"
+        f"{spec.prompt_schema}\n\n"
+        "Return only the JSON value. Do not include markdown fences, explanations, or extra text."
     )
 
 
