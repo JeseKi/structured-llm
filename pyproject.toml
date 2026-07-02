@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "structured-llm"
+version = "0.1.0"
+description = "Lightweight structured output runtime for Python LLM calls."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "structured-llm contributors" }]
+dependencies = [
+  "openai>=1.0.0",
+  "pydantic>=2.0.0",
+  "python-dotenv>=1.2.2",
+]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+default = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["sample", ".git", ".venv", ".ruff_cache"]
+asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.15.20",
+]
+
+[tool.mypy]
+exclude = [
+  "^sample/"
+]
