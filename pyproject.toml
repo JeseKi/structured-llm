@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "structured-llm"
-version = "0.1.0"
+version = "0.1.1"
 description = "Lightweight structured output runtime for Python LLM calls."
 readme = "README.md"
 requires-python = ">=3.10"
