@@ -47,6 +47,23 @@ print(receipt.total)
 
 `Field(description=...)` 会渲染到默认 output format prompt。`debug=True` 会把传给 OpenAI-compatible SDK 的 request payload 和模型解析前的原始输出打印到 stderr。默认不会发送 `response_format`；只有显式设置 `mode="native"` 或 `mode="auto"` 时才会尝试 provider-native structured output。
 
+### 图片输入
+
+视觉模型可与结构化输出一起使用。通过 `ImageInput` 显式提供远程 URL、本地图片或 Base64 Data URL；`run()` 和 `arun()` 都支持多个图片，且同时兼容 `endpoint="chat"` 和 `endpoint="responses"`：
+
+```python
+from structured_llm import ImageInput, StructuredClient
+
+client = StructuredClient(model="gpt-4o-mini")
+receipt = client.run(
+    "提取这张收据中的商户和总金额",
+    Receipt,
+    images=[ImageInput.from_file("receipt.jpg", detail="high")],
+)
+```
+
+可用的 `detail` 为 `"auto"`（默认）、`"low"`、`"high"` 和 `"original"`。本地文件支持 PNG、JPEG、WEBP、GIF，并会在内存中转为 Data URL；远程图片请使用 `ImageInput.from_url(...)`，已有 Data URL 请使用 `ImageInput.from_data_url(...)`。模型必须支持视觉输入，图片会计入输入 token。为避免日志泄露二进制图片内容，`debug=True` 会脱敏 Data URL 的 Base64 主体。
+
 只解析已有的 LLM 文本输出：
 
 ```python
@@ -83,6 +100,7 @@ uv run --no-config --default-index https://pypi.org/simple --group dev mypy stru
 
 - 支持同步调用：`StructuredClient.run(...)`
 - 支持异步调用：`StructuredClient.arun(...)`
+- 支持图片输入：URL、本地图片、Base64 Data URL
 - 支持本地解析：`StructuredClient.parse(...)`
 - 支持 Pydantic `BaseModel`、`list[...]`、`dict[...]`、`Literal`、`Enum` 等 `TypeAdapter` 可处理的类型
 - 暂不支持流式 partial object、多 provider 内置适配、BAML DSL/codegen

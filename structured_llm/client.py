@@ -4,9 +4,10 @@ import inspect
 import json
 import os
 import sys
-from typing import Any, Literal, TypeVar, overload
+from typing import Any, Literal, Sequence, TypeVar, overload
 
 from .errors import ProviderError, StructuredLLMError, StructuredValidationError
+from .inputs import ImageInput
 from .parser import parse_structured_text
 from .schema import SchemaSpec, build_schema_spec
 
@@ -54,6 +55,7 @@ class StructuredClient:
         schema: type[T],
         *,
         system: str | None = None,
+        images: Sequence[ImageInput] | None = None,
         **model_options: Any,
     ) -> T: ...
 
@@ -64,6 +66,7 @@ class StructuredClient:
         schema: Any,
         *,
         system: str | None = None,
+        images: Sequence[ImageInput] | None = None,
         **model_options: Any,
     ) -> Any: ...
 
@@ -73,11 +76,22 @@ class StructuredClient:
         schema: Any,
         *,
         system: str | None = None,
+        images: Sequence[ImageInput] | None = None,
         **model_options: Any,
     ) -> Any:
         spec = build_schema_spec(schema)
-        raw_text = self._complete(prompt, spec, system=system, **model_options)
-        return self._parse_with_retry(raw_text, spec, prompt=prompt, system=system, model_options=model_options)
+        image_inputs = _validate_images(images)
+        raw_text = self._complete(
+            prompt, spec, system=system, images=image_inputs, **model_options
+        )
+        return self._parse_with_retry(
+            raw_text,
+            spec,
+            prompt=prompt,
+            system=system,
+            images=image_inputs,
+            model_options=model_options,
+        )
 
     @overload
     async def arun(
@@ -86,6 +100,7 @@ class StructuredClient:
         schema: type[T],
         *,
         system: str | None = None,
+        images: Sequence[ImageInput] | None = None,
         **model_options: Any,
     ) -> T: ...
 
@@ -96,6 +111,7 @@ class StructuredClient:
         schema: Any,
         *,
         system: str | None = None,
+        images: Sequence[ImageInput] | None = None,
         **model_options: Any,
     ) -> Any: ...
 
@@ -105,15 +121,20 @@ class StructuredClient:
         schema: Any,
         *,
         system: str | None = None,
+        images: Sequence[ImageInput] | None = None,
         **model_options: Any,
     ) -> Any:
         spec = build_schema_spec(schema)
-        raw_text = await self._acomplete(prompt, spec, system=system, **model_options)
+        image_inputs = _validate_images(images)
+        raw_text = await self._acomplete(
+            prompt, spec, system=system, images=image_inputs, **model_options
+        )
         return await self._aparse_with_retry(
             raw_text,
             spec,
             prompt=prompt,
             system=system,
+            images=image_inputs,
             model_options=model_options,
         )
 
@@ -132,18 +153,27 @@ class StructuredClient:
         spec: SchemaSpec,
         *,
         system: str | None,
+        images: tuple[ImageInput, ...],
         **model_options: Any,
     ) -> str:
         if self.mode == "prompt":
-            return self._call_prompt(prompt, spec, system=system, **model_options)
+            return self._call_prompt(
+                prompt, spec, system=system, images=images, **model_options
+            )
         if self.mode == "native":
-            return self._call_native(prompt, spec, system=system, **model_options)
+            return self._call_native(
+                prompt, spec, system=system, images=images, **model_options
+            )
         try:
-            return self._call_native(prompt, spec, system=system, **model_options)
+            return self._call_native(
+                prompt, spec, system=system, images=images, **model_options
+            )
         except ProviderError as exc:
             if not _looks_like_unsupported_native(exc):
                 raise
-            return self._call_prompt(prompt, spec, system=system, **model_options)
+            return self._call_prompt(
+                prompt, spec, system=system, images=images, **model_options
+            )
 
     async def _acomplete(
         self,
@@ -151,18 +181,27 @@ class StructuredClient:
         spec: SchemaSpec,
         *,
         system: str | None,
+        images: tuple[ImageInput, ...],
         **model_options: Any,
     ) -> str:
         if self.mode == "prompt":
-            return await self._acall_prompt(prompt, spec, system=system, **model_options)
+            return await self._acall_prompt(
+                prompt, spec, system=system, images=images, **model_options
+            )
         if self.mode == "native":
-            return await self._acall_native(prompt, spec, system=system, **model_options)
+            return await self._acall_native(
+                prompt, spec, system=system, images=images, **model_options
+            )
         try:
-            return await self._acall_native(prompt, spec, system=system, **model_options)
+            return await self._acall_native(
+                prompt, spec, system=system, images=images, **model_options
+            )
         except ProviderError as exc:
             if not _looks_like_unsupported_native(exc):
                 raise
-            return await self._acall_prompt(prompt, spec, system=system, **model_options)
+            return await self._acall_prompt(
+                prompt, spec, system=system, images=images, **model_options
+            )
 
     def _parse_with_retry(
         self,
@@ -171,6 +210,7 @@ class StructuredClient:
         *,
         prompt: str,
         system: str | None,
+        images: tuple[ImageInput, ...],
         model_options: dict[str, Any],
     ) -> Any:
         try:
@@ -179,7 +219,9 @@ class StructuredClient:
             if self.max_retries <= 0:
                 raise
             retry_prompt = _retry_prompt(prompt, spec, exc)
-            retry_text = self._call_prompt(retry_prompt, spec, system=system, **model_options)
+            retry_text = self._call_prompt(
+                retry_prompt, spec, system=system, images=images, **model_options
+            )
             return parse_structured_text(retry_text, spec)
 
     async def _aparse_with_retry(
@@ -189,6 +231,7 @@ class StructuredClient:
         *,
         prompt: str,
         system: str | None,
+        images: tuple[ImageInput, ...],
         model_options: dict[str, Any],
     ) -> Any:
         try:
@@ -197,58 +240,132 @@ class StructuredClient:
             if self.max_retries <= 0:
                 raise
             retry_prompt = _retry_prompt(prompt, spec, exc)
-            retry_text = await self._acall_prompt(retry_prompt, spec, system=system, **model_options)
+            retry_text = await self._acall_prompt(
+                retry_prompt, spec, system=system, images=images, **model_options
+            )
             return parse_structured_text(retry_text, spec)
 
-    def _call_native(self, prompt: str, spec: SchemaSpec, *, system: str | None, **model_options: Any) -> str:
+    def _call_native(
+        self,
+        prompt: str,
+        spec: SchemaSpec,
+        *,
+        system: str | None,
+        images: tuple[ImageInput, ...],
+        **model_options: Any,
+    ) -> str:
         client = self._sync_client()
         try:
-            response = self._invoke_sync(client, prompt, spec, system=system, native=True, **model_options)
+            response = self._invoke_sync(
+                client,
+                prompt,
+                spec,
+                system=system,
+                images=images,
+                native=True,
+                **model_options,
+            )
             raw_text = _extract_response_text(response)
             self._debug_raw_output(raw_text)
             return raw_text
         except StructuredLLMError:
             raise
         except Exception as exc:
-            raise ProviderError("Provider native structured output call failed", cause=exc) from exc
+            raise ProviderError(
+                "Provider native structured output call failed", cause=exc
+            ) from exc
 
-    def _call_prompt(self, prompt: str, spec: SchemaSpec, *, system: str | None, **model_options: Any) -> str:
+    def _call_prompt(
+        self,
+        prompt: str,
+        spec: SchemaSpec,
+        *,
+        system: str | None,
+        images: tuple[ImageInput, ...],
+        **model_options: Any,
+    ) -> str:
         client = self._sync_client()
         prompt = _prompt_with_schema(prompt, spec)
         try:
-            response = self._invoke_sync(client, prompt, spec, system=system, native=False, **model_options)
+            response = self._invoke_sync(
+                client,
+                prompt,
+                spec,
+                system=system,
+                images=images,
+                native=False,
+                **model_options,
+            )
             raw_text = _extract_response_text(response)
             self._debug_raw_output(raw_text)
             return raw_text
         except StructuredLLMError:
             raise
         except Exception as exc:
-            raise ProviderError("Provider prompt structured output call failed", cause=exc) from exc
+            raise ProviderError(
+                "Provider prompt structured output call failed", cause=exc
+            ) from exc
 
-    async def _acall_native(self, prompt: str, spec: SchemaSpec, *, system: str | None, **model_options: Any) -> str:
+    async def _acall_native(
+        self,
+        prompt: str,
+        spec: SchemaSpec,
+        *,
+        system: str | None,
+        images: tuple[ImageInput, ...],
+        **model_options: Any,
+    ) -> str:
         client = self._async_openai_client()
         try:
-            response = await self._invoke_async(client, prompt, spec, system=system, native=True, **model_options)
+            response = await self._invoke_async(
+                client,
+                prompt,
+                spec,
+                system=system,
+                images=images,
+                native=True,
+                **model_options,
+            )
             raw_text = _extract_response_text(response)
             self._debug_raw_output(raw_text)
             return raw_text
         except StructuredLLMError:
             raise
         except Exception as exc:
-            raise ProviderError("Provider native structured output call failed", cause=exc) from exc
+            raise ProviderError(
+                "Provider native structured output call failed", cause=exc
+            ) from exc
 
-    async def _acall_prompt(self, prompt: str, spec: SchemaSpec, *, system: str | None, **model_options: Any) -> str:
+    async def _acall_prompt(
+        self,
+        prompt: str,
+        spec: SchemaSpec,
+        *,
+        system: str | None,
+        images: tuple[ImageInput, ...],
+        **model_options: Any,
+    ) -> str:
         client = self._async_openai_client()
         prompt = _prompt_with_schema(prompt, spec)
         try:
-            response = await self._invoke_async(client, prompt, spec, system=system, native=False, **model_options)
+            response = await self._invoke_async(
+                client,
+                prompt,
+                spec,
+                system=system,
+                images=images,
+                native=False,
+                **model_options,
+            )
             raw_text = _extract_response_text(response)
             self._debug_raw_output(raw_text)
             return raw_text
         except StructuredLLMError:
             raise
         except Exception as exc:
-            raise ProviderError("Provider prompt structured output call failed", cause=exc) from exc
+            raise ProviderError(
+                "Provider prompt structured output call failed", cause=exc
+            ) from exc
 
     def _invoke_sync(
         self,
@@ -257,14 +374,24 @@ class StructuredClient:
         spec: SchemaSpec,
         *,
         system: str | None,
+        images: tuple[ImageInput, ...],
         native: bool,
         **model_options: Any,
     ) -> Any:
         if self.endpoint == "responses":
-            kwargs = self._responses_kwargs(prompt, spec, system=system, native=native, **model_options)
+            kwargs = self._responses_kwargs(
+                prompt,
+                spec,
+                system=system,
+                images=images,
+                native=native,
+                **model_options,
+            )
             self._debug_request("responses.create", kwargs)
             return client.responses.create(**kwargs)
-        kwargs = self._chat_kwargs(prompt, spec, system=system, native=native, **model_options)
+        kwargs = self._chat_kwargs(
+            prompt, spec, system=system, images=images, native=native, **model_options
+        )
         self._debug_request("chat.completions.create", kwargs)
         return client.chat.completions.create(**kwargs)
 
@@ -275,14 +402,24 @@ class StructuredClient:
         spec: SchemaSpec,
         *,
         system: str | None,
+        images: tuple[ImageInput, ...],
         native: bool,
         **model_options: Any,
     ) -> Any:
         if self.endpoint == "responses":
-            kwargs = self._responses_kwargs(prompt, spec, system=system, native=native, **model_options)
+            kwargs = self._responses_kwargs(
+                prompt,
+                spec,
+                system=system,
+                images=images,
+                native=native,
+                **model_options,
+            )
             self._debug_request("responses.create", kwargs)
             return await _maybe_await(client.responses.create(**kwargs))
-        kwargs = self._chat_kwargs(prompt, spec, system=system, native=native, **model_options)
+        kwargs = self._chat_kwargs(
+            prompt, spec, system=system, images=images, native=native, **model_options
+        )
         self._debug_request("chat.completions.create", kwargs)
         return await _maybe_await(client.chat.completions.create(**kwargs))
 
@@ -292,13 +429,14 @@ class StructuredClient:
         spec: SchemaSpec,
         *,
         system: str | None,
+        images: tuple[ImageInput, ...],
         native: bool,
         **model_options: Any,
     ) -> dict[str, Any]:
-        messages = []
+        messages: list[dict[str, Any]] = []
         if system:
             messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
+        messages.append({"role": "user", "content": _chat_content(prompt, images)})
         kwargs = {"model": self.model, "messages": messages, **model_options}
         if native:
             kwargs["response_format"] = _chat_response_format(spec)
@@ -310,11 +448,16 @@ class StructuredClient:
         spec: SchemaSpec,
         *,
         system: str | None,
+        images: tuple[ImageInput, ...],
         native: bool,
         **model_options: Any,
     ) -> dict[str, Any]:
         input_text = prompt if system is None else f"{system}\n\n{prompt}"
-        kwargs = {"model": self.model, "input": input_text, **model_options}
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "input": _responses_input(input_text, images),
+            **model_options,
+        }
         if native:
             kwargs["text"] = {"format": _responses_text_format(spec)}
         return kwargs
@@ -324,7 +467,9 @@ class StructuredClient:
             try:
                 from openai import OpenAI
             except ImportError as exc:  # pragma: no cover - dependency is declared
-                raise ProviderError("openai package is required for provider calls", cause=exc) from exc
+                raise ProviderError(
+                    "openai package is required for provider calls", cause=exc
+                ) from exc
             self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         return self._client
 
@@ -333,15 +478,24 @@ class StructuredClient:
             try:
                 from openai import AsyncOpenAI
             except ImportError as exc:  # pragma: no cover - dependency is declared
-                raise ProviderError("openai package is required for provider calls", cause=exc) from exc
-            self._async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+                raise ProviderError(
+                    "openai package is required for provider calls", cause=exc
+                ) from exc
+            self._async_client = AsyncOpenAI(
+                api_key=self.api_key, base_url=self.base_url
+            )
         return self._async_client
 
     def _debug_request(self, endpoint: str, kwargs: dict[str, Any]) -> None:
         if not self.debug:
             return
         print(f"[structured-llm debug] request {endpoint}", file=sys.stderr)
-        print(json.dumps(kwargs, ensure_ascii=False, indent=2, default=repr), file=sys.stderr)
+        print(
+            json.dumps(
+                _redact_data_urls(kwargs), ensure_ascii=False, indent=2, default=repr
+            ),
+            file=sys.stderr,
+        )
 
     def _debug_raw_output(self, raw_text: str) -> None:
         if not self.debug:
@@ -407,6 +561,69 @@ def _value_or_env(value: str | None, env_name: str) -> str | None:
     if value is not None:
         return value
     return os.environ.get(env_name)
+
+
+def _validate_images(images: Sequence[ImageInput] | None) -> tuple[ImageInput, ...]:
+    if images is None:
+        return ()
+    image_inputs = tuple(images)
+    if not all(isinstance(image, ImageInput) for image in image_inputs):
+        raise TypeError("images must contain only ImageInput instances")
+    return image_inputs
+
+
+def _chat_content(
+    prompt: str, images: tuple[ImageInput, ...]
+) -> str | list[dict[str, Any]]:
+    if not images:
+        return prompt
+    return [
+        {"type": "text", "text": prompt},
+        *[
+            {
+                "type": "image_url",
+                "image_url": {"url": image.image_url, "detail": image.detail},
+            }
+            for image in images
+        ],
+    ]
+
+
+def _responses_input(
+    prompt: str, images: tuple[ImageInput, ...]
+) -> str | list[dict[str, Any]]:
+    if not images:
+        return prompt
+    return [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": prompt},
+                *[
+                    {
+                        "type": "input_image",
+                        "image_url": image.image_url,
+                        "detail": image.detail,
+                    }
+                    for image in images
+                ],
+            ],
+        }
+    ]
+
+
+def _redact_data_urls(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _redact_data_urls(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_data_urls(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_data_urls(item) for item in value)
+    if isinstance(value, str) and value.startswith("data:"):
+        header, separator, encoded = value.partition(",")
+        if separator:
+            return f"{header},<redacted {len(encoded)} base64 chars>"
+    return value
 
 
 def _extract_response_text(response: Any) -> str:
