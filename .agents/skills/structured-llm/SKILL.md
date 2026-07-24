@@ -1,6 +1,6 @@
 ---
 name: structured-llm
-description: 在 Python 项目中接入 structured-llm 结构化 LLM 输出库。Use when the user wants to install, configure, demonstrate, or implement structured LLM extraction with Pydantic schemas, OpenAI-compatible providers, `.env` variables, prompt-based JSON output parsing, debug request inspection, or migration away from provider-specific `response_format`.
+description: 在 Python 项目中接入 structured-llm 结构化 LLM 输出库。Use when the user wants to install, configure, demonstrate, or implement text/image structured LLM extraction with Pydantic schemas, OpenAI-compatible providers, `.env` variables, prompt-based JSON output parsing, debug request inspection, or migration away from provider-specific `response_format`.
 ---
 
 # Structured LLM
@@ -96,6 +96,39 @@ StructuredClient(model="...", mode="native")
 StructuredClient(model="...", mode="auto")
 ```
 
+## 图片输入
+
+当任务需要从图片中提取结构化信息时，使用 `ImageInput`，并确认模型和 OpenAI-compatible provider 都支持视觉输入。`run` 与 `arun` 通过 `images` 接收一个或多个图片；图片会随请求计入输入 token。
+
+```python
+from pydantic import BaseModel, Field
+from structured_llm import ImageInput, StructuredClient
+
+
+class ImageExtraction(BaseModel):
+    summary: str = Field(description="图片主体的客观摘要")
+    visible_text: list[str] = Field(description="可辨认文字，按阅读顺序列出")
+    key_values: dict[str, str] = Field(description="图片中明确标注的键值信息")
+
+
+client = StructuredClient(model="gpt-5.4-mini", mode="auto")
+result = client.run(
+    prompt="提取图片中的关键信息；只输出可见内容，不要猜测。",
+    schema=ImageExtraction,
+    images=[ImageInput.from_file("document.png", detail="high")],
+)
+```
+
+图片来源必须显式构造：
+
+```python
+ImageInput.from_url("https://example.com/image.png")
+ImageInput.from_file("./image.jpg")
+ImageInput.from_data_url("data:image/png;base64,iVBORw0KGgo...")
+```
+
+`detail` 可为 `"auto"`（默认）、`"low"`、`"high"` 或 `"original"`。本地文件支持 PNG、JPEG、WEBP、GIF，并会编码为 Data URL；不要传裸 Base64，因为它没有 MIME 类型。Chat 与 Responses 端点都支持该统一 API。
+
 ## Debug
 
 调试模型输入输出时启用：
@@ -110,6 +143,8 @@ debug 会向 `stderr` 打印：
 - 模型解析前的原始输出。
 
 默认 prompt 模式下，debug 输出不应包含 `response_format`。如果看到 `response_format`，说明代码显式使用了 `mode="native"` 或 `mode="auto"`。
+
+图片请求中的 Data URL 会在 debug 输出中脱敏，不会打印其 Base64 主体。
 
 ## 异步调用
 
@@ -153,6 +188,7 @@ receipt = client.parse(raw, Receipt)
 - 在测试中优先覆盖解析层：用 `client.parse(...)` 或 `parse_structured_text(...)` 验证模型可能返回的 JSON 文本。
 - 开发期使用 `debug=True`；生产期默认关闭，避免日志包含用户输入或模型输出。
 - 对供应商兼容性不确定时，坚持默认 `mode="prompt"`。
+- 对视觉任务，先验证所选模型和 provider 支持图片；provider-native JSON Schema 可用时优先 `mode="auto"`，以便不支持时自动回退 prompt 模式。
 - 使用 `Field(description=...)` 描述字段语义，尤其是枚举、金额、日期、单位、可选字段。
 
 ## 常见错误
@@ -161,3 +197,4 @@ receipt = client.parse(raw, Receipt)
 - 不要把 schema 写成普通 dict 后期待静态类型推导。若需要 `receipt` 被推导为 `Receipt`，传入 `Receipt` 类型对象。
 - 不要让模型输出解释、Markdown、代码块或额外文本。库的 prompt 会要求只返回 JSON，但业务 prompt 也应避免鼓励解释。
 - 如果解析失败，先查看 debug raw output，再判断是模型没有返回 JSON、字段语义不清、还是 schema 过严。
+- 若图片请求的 raw output 为空，先排查模型/provider 的视觉支持、图片 URL 是否可由 provider 服务端访问、Data URL 是否完整，以及 provider 是否返回了拒绝或过滤信息；这不是本地 JSON 解析器能够修复的问题。
