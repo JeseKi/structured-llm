@@ -4,11 +4,47 @@
 
 它直接使用 Pydantic 类型作为 schema，不需要 `.baml` 文件、CLI、代码生成，也不需要额外的运行时编译器。默认行为是 BAML 风格的「output format prompt + 本地 JSON 提取/轻量修复 + Pydantic 校验」，因此不依赖特定供应商是否支持 `response_format`。
 
-## 安装依赖
+## 安装
 
-普通运行依赖：
+环境要求：Python `>=3.10`（本仓库开发用 `3.13`）。
+
+### 1. 在你自己的项目中使用（作为第三方依赖）
+
+本包已发布为 `structured-llm`，安装时会自动带上运行时依赖 `openai>=1.0.0`、`pydantic>=2.0.0`、`python-dotenv>=1.2.2`，不需要手动逐个安装。
+
+用 `pip`：
 
 ```bash
+pip install structured-llm
+```
+
+用 `uv`（推荐，在已有项目目录下执行）：
+
+```bash
+uv add structured-llm
+```
+
+验证是否安装成功：
+
+```bash
+python -c "from importlib.metadata import version; print(version('structured-llm'))"
+```
+
+装好后配置 OpenAI-compatible 的 Key 即可使用（详见下面的使用示例）：
+
+```bash
+export OPENAI_API_KEY="..."
+# 可选，默认走 OpenAI 官方地址；第三方兼容服务才需要改
+export OPENAI_BASE_URL="https://your-openai-compatible-provider/v1"
+```
+
+### 2. 克隆本仓库做二次开发
+
+只有你要改 `structured-llm` 本身的代码、跑测试、提 PR 时，才需要这一步。普通使用者看第 1 节就够了。
+
+```bash
+git clone https://github.com/JeseKi/structured-llm.git
+cd structured-llm
 uv sync --no-config --default-index https://pypi.org/simple
 ```
 
@@ -23,6 +59,8 @@ uv sync --group dev --no-config --default-index https://pypi.org/simple
 ```bash
 uv add <package> --group dev --no-config --default-index https://pypi.org/simple
 ```
+
+> 说明：上面命令里的 `--no-config --default-index https://pypi.org/simple` 是为了强制走 PyPI 官方源、忽略本地可能配置的镜像。如果你本地没有换源需求，直接用 `uv sync` / `uv sync --group dev` 即可。
 
 ## 使用示例
 
